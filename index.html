@@ -132,6 +132,12 @@
     .btn-del { padding:12px 14px; border-radius:11px; border:1px solid #FCA5A5; background:#FEF2F2; color:#EF4444; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit; }
     .btn-cancel { padding:12px 14px; border-radius:11px; border:1px solid #E2E8F0; background:#F8FAFC; color:#64748B; font-weight:600; font-size:13px; cursor:pointer; font-family:inherit; }
     #footer { text-align:center; font-size:10px; color:#CBD5E1; padding:10px 0 20px; }
+
+    /* RECEIPT LIGHTBOX */
+    #receipt-lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:9999; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+    #receipt-lightbox.open { display:flex; }
+    #receipt-lightbox img { max-width:95vw; max-height:82vh; border-radius:12px; box-shadow:0 8px 40px rgba(0,0,0,0.6); object-fit:contain; }
+    #receipt-lightbox-close { background:#fff; color:#1E293B; border:none; border-radius:50px; padding:10px 28px; font-size:15px; font-weight:700; cursor:pointer; font-family:inherit; }
   </style>
 </head>
 <body>
@@ -236,6 +242,12 @@
   </div>
 </div>
 
+<!-- RECEIPT LIGHTBOX -->
+<div id="receipt-lightbox" onclick="closeReceiptLightbox(event)">
+  <img id="receipt-lightbox-img" src="" alt="תעודת משלוח">
+  <button id="receipt-lightbox-close" onclick="document.getElementById('receipt-lightbox').classList.remove('open')">✕ סגור</button>
+</div>
+
 <div id="footer">לחץ על שעה ביומן להוספת משימה</div>
 
 <script type="module">
@@ -292,6 +304,7 @@ window.handleSave=handleSave;
 window.saveTask=saveTask;
 window.deleteTask=deleteTask;
 window.closeModal=closeModal;
+window.closeReceiptLightbox=closeReceiptLightbox;
 
 // Password
 function checkPassword(){
@@ -386,11 +399,23 @@ function setView(view){
   }
 }
 
+// ── Receipt lightbox ──────────────────────────────────────────────
+function openReceiptLightbox(src){
+  document.getElementById("receipt-lightbox-img").src = src;
+  document.getElementById("receipt-lightbox").classList.add("open");
+}
+
+function closeReceiptLightbox(e){
+  if(e.target === document.getElementById("receipt-lightbox")){
+    document.getElementById("receipt-lightbox").classList.remove("open");
+  }
+}
+// ─────────────────────────────────────────────────────────────────
+
 function renderDaily(){
   const dv = document.getElementById("daily-view");
   let html = '';
 
-  // Show all days, each with its tasks
   weekDates.forEach((d,i)=>{
     const dk = DAY_KEYS[i];
     const dayTasks = (tasks[dk]||[]).slice().sort((a,b)=>a.startHour*60+a.startMin - (b.startHour*60+b.startMin));
@@ -408,13 +433,17 @@ function renderDaily(){
     } else {
       dayTasks.forEach(task=>{
         const c = COLORS[task.color||0];
+        // תמונה — כעת פותחת lightbox במקום חלון חדש
+        const receiptHtml = task.receipt
+          ? `<img class="daily-receipt-img" src="${task.receipt}" data-open-receipt="${task.id}" />`
+          : '';
         html += `<div class="daily-task${task.done?' done':''}" data-id="${task.id}" data-dk="${dk}">
           <div class="daily-task-color" style="background:${c.bg}"></div>
           <div style="flex:1">
             <div class="daily-task-title">${task.title}</div>
             <div class="daily-task-time">🕐 ${pad(task.startHour)}:${pad(task.startMin)} – ${pad(task.endHour)}:${pad(task.endMin)}</div>
             ${task.employee?`<div class="daily-task-emp">👤 ${task.employee}</div>`:''}
-            ${task.receipt?`<img class="daily-receipt-img" src="${task.receipt}" onclick="event.stopPropagation();window.open('${task.receipt}','_blank')" />`:''}
+            ${receiptHtml}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
             <button class="daily-done-btn${task.done?' checked':''}" data-toggle="${task.id}" data-dk="${dk}">${task.done?'✓ בוצע':'בוצע'}</button>
@@ -447,6 +476,14 @@ function renderDaily(){
     };
   });
 
+  // תמונות קיימות — פתיחה ב-lightbox
+  dv.querySelectorAll('[data-open-receipt]').forEach(img=>{
+    img.onclick=(e)=>{
+      e.stopPropagation();
+      openReceiptLightbox(img.src);
+    };
+  });
+
   // Attach event handlers
   weekDates.forEach((d,i)=>{
     const dk = DAY_KEYS[i];
@@ -455,7 +492,7 @@ function renderDaily(){
       if(el.classList.contains('daily-task')){
         const taskId = el.dataset.id;
         const task = dayTasks.find(t=>t.id===taskId);
-        if(task) el.onclick=(e)=>{ if(!e.target.dataset.toggle) openEdit(task,dk); };
+        if(task) el.onclick=(e)=>{ if(!e.target.dataset.toggle && !e.target.dataset.receipt) openEdit(task,dk); };
       }
       if(el.dataset.toggle){
         const toggleId = el.dataset.toggle;
@@ -481,14 +518,12 @@ window.selectDay = function(idx){
 }
 
 function render(){
-
   weekKey=weekDates[0].toDateString();
   document.getElementById("topbar-sub").textContent=fmtMonth(weekDates)+" · "+fmtDate(weekDates[0])+"–"+fmtDate(weekDates[6]||weekDates[5]);
   const isCurrent=getWeekDates(today)[0].toDateString()===weekKey;
   document.getElementById("today-btn").style.display=isCurrent?"none":"inline-block";
   const todayIdx=today.getDay();
 
-  // Headers
   const headers=document.getElementById("day-headers");headers.innerHTML="<div></div>";
   weekDates.forEach((d,i)=>{
     const div=document.createElement("div");div.className="day-header";
@@ -497,7 +532,6 @@ function render(){
     headers.appendChild(div);
   });
 
-  // Grid
   const grid=document.getElementById("time-grid");grid.innerHTML="";
   const totalH=HOURS.length*HOUR_H;
   const lblCol=document.createElement("div");lblCol.id="hour-labels";lblCol.style.cssText="position:relative;height:"+totalH+"px";
@@ -522,7 +556,6 @@ function render(){
       const dur=(task.endHour-task.startHour)*60+(task.endMin-task.startMin);
       const height=Math.max((dur/60)*HOUR_H-3,20);
       const c=COLORS[task.color||0];
-      // Side-by-side overlap detection
       const overlapping=dayTasks.filter(t2=>{
         const s1=task.startHour*60+task.startMin,e1=task.endHour*60+task.endMin;
         const s2=t2.startHour*60+t2.startMin,e2=t2.endHour*60+t2.endMin;
@@ -559,7 +592,6 @@ function toggleDone(day,id){
 window.openAddTask = openAddTask;
 
 function openAddTask(){
-  // Default to today's day if in current week, else first day
   const todayIdx = today.getDay();
   const isCurrent = getWeekDates(today)[0].toDateString()===weekKey;
   const defaultDayIdx = isCurrent && todayIdx < DAY_KEYS.length ? todayIdx : 0;
@@ -568,13 +600,11 @@ function openAddTask(){
   editingId=null; editingDay=defaultDay;
   document.getElementById("modal-title").textContent="➕ משימה חדשה";
 
-  // Build day selector inside modal
   const daySelectHTML = `<label>יום</label>
     <select id="f-day" style="margin-bottom:12px">
       ${DAY_KEYS.map((dk,i)=>`<option value="${dk}" ${dk===defaultDay?'selected':''}>${DAYS[i]} ${fmtDate(weekDates[i])}</option>`).join('')}
     </select>`;
 
-  // Inject day selector before title field
   const modal = document.getElementById("modal");
   let daySelEl = document.getElementById("day-selector-row");
   if(!daySelEl){
@@ -609,7 +639,6 @@ function openNew(day,hour){
   document.getElementById("f-note").value="";selectedColor=0;
   colorRow.querySelectorAll(".color-dot").forEach((x,i)=>x.classList.toggle("selected",i===0));
   document.getElementById("del-btn").style.display="none";
-  // Remove day selector if present
   const ds=document.getElementById("day-selector-row");if(ds)ds.remove();
   document.getElementById("modal-overlay").classList.add("open");
   setTimeout(()=>document.getElementById("f-title").focus(),100);
@@ -624,7 +653,6 @@ function openEdit(task,day){
   document.getElementById("f-note").value=task.note||"";selectedColor=task.color||0;
   colorRow.querySelectorAll(".color-dot").forEach((x,i)=>x.classList.toggle("selected",i===selectedColor));
   document.getElementById("del-btn").style.display="inline-block";
-  // Remove day selector if present
   const ds2=document.getElementById("day-selector-row");if(ds2)ds2.remove();
   document.getElementById("modal-overlay").classList.add("open");
 }
@@ -635,7 +663,6 @@ function saveTask(){
   const title = titleEl.value.trim();
   if(!title){ titleEl.focus(); return; }
   
-  // Get day - from selector if exists, else from editingDay
   const dayEl = document.getElementById("f-day");
   const day = dayEl ? dayEl.value : editingDay;
   if(!day){ alert("שגיאה: יום לא נבחר"); return; }
@@ -655,6 +682,9 @@ function saveTask(){
   if(!tasks[day]) tasks[day] = [];
   
   if(editingId){
+    // preserve receipt when editing
+    const existing = tasks[day].find(x=>x.id===editingId);
+    if(existing && existing.receipt) t.receipt = existing.receipt;
     tasks[day] = tasks[day].map(x => x.id === editingId ? t : x);
   } else {
     tasks[day].push(t);
@@ -705,23 +735,8 @@ function goToday(){
   render();
 }
 
-function handleExport(){
-  const all=lsLoadAll();all[weekKey]=tasks;
-  const blob=new Blob([JSON.stringify(all,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);const a=document.createElement("a");
-  a.href=url;a.download="work_schedule.json";a.click();URL.revokeObjectURL(url);
-}
-
-function handleImport(e){
-  const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=ev=>{try{const all=JSON.parse(ev.target.result);localStorage.setItem(LS_KEY,JSON.stringify(all));tasks=all[weekKey]||emptyTasks();render();}catch{alert("קובץ לא תקין");}};
-  reader.readAsText(file);e.target.value="";
-}
-
 document.getElementById("f-title").addEventListener("keydown",e=>{if(e.key==="Enter")saveTask();});
 
-// Auto-connect Firebase if saved
 const savedCfg=localStorage.getItem(LS_CFG);
 if(savedCfg){try{const c=JSON.parse(savedCfg);document.getElementById("cfg-apiKey").value=c.apiKey||"";document.getElementById("cfg-projectId").value=c.projectId||"";document.getElementById("cfg-room").value=c.room||"";initFb(c);document.getElementById("setup-screen").classList.add("hidden");}catch{}}
 
